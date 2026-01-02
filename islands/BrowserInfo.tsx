@@ -81,29 +81,43 @@ export default function BrowserInfo() {
   };
 
   const detectIPs = async () => {
-    // Detect IPv4
+    // Detect IPv4 using IPv4-only endpoint
     try {
-      const response = await fetch("/api/ip?version=4");
-      const data = await response.json();
-      if (data.success) {
-        ipv4Info.value = data;
+      const ipResponse = await fetch("https://api.ipify.org?format=json");
+      const ipData = await ipResponse.json();
+      if (ipData.ip && !ipData.ip.includes(":")) {
+        // Got IPv4, now get additional info from our API
+        const infoResponse = await fetch(`/api/ip?ip=${ipData.ip}`);
+        const infoData = await infoResponse.json();
+        if (infoData.success) {
+          ipv4Info.value = infoData;
+        } else {
+          ipv4Info.value = { ip: ipData.ip, version: "IPv4" };
+        }
       } else {
-        ipv4Error.value = data.error || "Failed to detect IPv4";
+        ipv4Error.value = "No IPv4 connectivity";
       }
     } catch {
-      ipv4Error.value = "IPv4 detection failed";
+      ipv4Error.value = "No IPv4 connectivity";
     } finally {
       ipv4Loading.value = false;
     }
 
-    // Detect IPv6
+    // Detect IPv6 using IPv6-only endpoint
     try {
-      const response = await fetch("/api/ip?version=6");
-      const data = await response.json();
-      if (data.success) {
-        ipv6Info.value = data;
+      const ipResponse = await fetch("https://api6.ipify.org?format=json");
+      const ipData = await ipResponse.json();
+      if (ipData.ip && ipData.ip.includes(":")) {
+        // Got IPv6, now get additional info from our API
+        const infoResponse = await fetch(`/api/ip?ip=${ipData.ip}`);
+        const infoData = await infoResponse.json();
+        if (infoData.success) {
+          ipv6Info.value = infoData;
+        } else {
+          ipv6Info.value = { ip: ipData.ip, version: "IPv6" };
+        }
       } else {
-        ipv6Error.value = data.error || "No IPv6 connectivity";
+        ipv6Error.value = "No IPv6 connectivity";
       }
     } catch {
       ipv6Error.value = "No IPv6 connectivity";

@@ -105,40 +105,38 @@ function expandIPv6(ip: string): string {
 export const handler = define.handlers({
   async GET(ctx) {
     const url = new URL(ctx.req.url);
-    const version = url.searchParams.get("version");
+    const ipParam = url.searchParams.get("ip");
 
-    // Get client IP - prefer headers set by proxies, fallback to connection info
-    const forwardedFor = ctx.req.headers.get("x-forwarded-for");
-    const realIp = ctx.req.headers.get("x-real-ip");
-    const cfConnectingIp = ctx.req.headers.get("cf-connecting-ip");
+    // Use provided IP or detect from connection
+    let finalIp: string;
+    if (ipParam) {
+      // Validate IP format (basic check)
+      const isValidIp = /^[\d.:a-fA-F]+$/.test(ipParam);
+      if (!isValidIp) {
+        return Response.json(
+          { success: false, error: "Invalid IP address" },
+          { status: 400 },
+        );
+      }
+      finalIp = ipParam;
+    } else {
+      // Get client IP - prefer headers set by proxies, fallback to connection info
+      const forwardedFor = ctx.req.headers.get("x-forwarded-for");
+      const realIp = ctx.req.headers.get("x-real-ip");
+      const cfConnectingIp = ctx.req.headers.get("cf-connecting-ip");
 
-    // Use proxy headers if available, otherwise get IP from connection
-    const clientIp = cfConnectingIp ||
-      forwardedFor?.split(",")[0].trim() ||
-      realIp ||
-      ctx.info.remoteAddr.hostname;
+      const clientIp = cfConnectingIp ||
+        forwardedFor?.split(",")[0].trim() ||
+        realIp ||
+        ctx.info.remoteAddr.hostname;
 
-    if (!clientIp) {
-      return Response.json(
-        { success: false, error: "Could not detect IP address" },
-        { status: 500 },
-      );
-    }
-
-    const finalIp: string = clientIp;
-    const isIPv6 = finalIp.includes(":");
-
-    // If specific version requested and doesn't match, return error
-    if (version === "6" && !isIPv6) {
-      return Response.json(
-        { success: false, error: "No IPv6 connectivity" },
-        { status: 200 },
-      );
-    } else if (version === "4" && isIPv6) {
-      return Response.json(
-        { success: false, error: "No IPv4 connectivity" },
-        { status: 200 },
-      );
+      if (!clientIp) {
+        return Response.json(
+          { success: false, error: "Could not detect IP address" },
+          { status: 500 },
+        );
+      }
+      finalIp = clientIp;
     }
 
     // Get IP info and PTR record in parallel
