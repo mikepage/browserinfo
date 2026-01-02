@@ -107,37 +107,16 @@ export const handler = define.handlers({
     const url = new URL(ctx.req.url);
     const version = url.searchParams.get("version");
 
-    // Get client IP from request headers
+    // Get client IP - prefer headers set by proxies, fallback to connection info
     const forwardedFor = ctx.req.headers.get("x-forwarded-for");
     const realIp = ctx.req.headers.get("x-real-ip");
     const cfConnectingIp = ctx.req.headers.get("cf-connecting-ip");
 
-    let clientIp = cfConnectingIp || forwardedFor?.split(",")[0].trim() ||
-      realIp;
-
-    // For testing locally, use external service to get real IP
-    if (!clientIp || clientIp === "127.0.0.1" || clientIp === "::1") {
-      try {
-        if (version === "4") {
-          const response = await fetch("https://api.ipify.org?format=json");
-          const data = await response.json();
-          clientIp = data.ip;
-        } else if (version === "6") {
-          const response = await fetch("https://api64.ipify.org?format=json");
-          const data = await response.json();
-          clientIp = data.ip;
-        } else {
-          const response = await fetch("https://api.ipify.org?format=json");
-          const data = await response.json();
-          clientIp = data.ip;
-        }
-      } catch {
-        return Response.json(
-          { success: false, error: "Could not detect IP address" },
-          { status: 500 },
-        );
-      }
-    }
+    // Use proxy headers if available, otherwise get IP from connection
+    const clientIp = cfConnectingIp ||
+      forwardedFor?.split(",")[0].trim() ||
+      realIp ||
+      ctx.info.remoteAddr.hostname;
 
     if (!clientIp) {
       return Response.json(
@@ -146,48 +125,20 @@ export const handler = define.handlers({
       );
     }
 
-    // At this point clientIp is definitely a string
-    let finalIp: string = clientIp;
-
-    // Determine IP version
+    const finalIp: string = clientIp;
     const isIPv6 = finalIp.includes(":");
-    // If specific version requested and doesn't match, try to get that version
+
+    // If specific version requested and doesn't match, return error
     if (version === "6" && !isIPv6) {
-      try {
-        const response = await fetch("https://api64.ipify.org?format=json");
-        const data = await response.json();
-        if (data.ip && data.ip.includes(":")) {
-          finalIp = data.ip;
-        } else {
-          return Response.json(
-            { success: false, error: "No IPv6 connectivity" },
-            { status: 200 },
-          );
-        }
-      } catch {
-        return Response.json(
-          { success: false, error: "No IPv6 connectivity" },
-          { status: 200 },
-        );
-      }
+      return Response.json(
+        { success: false, error: "No IPv6 connectivity" },
+        { status: 200 },
+      );
     } else if (version === "4" && isIPv6) {
-      try {
-        const response = await fetch("https://api.ipify.org?format=json");
-        const data = await response.json();
-        if (data.ip && !data.ip.includes(":")) {
-          finalIp = data.ip;
-        } else {
-          return Response.json(
-            { success: false, error: "No IPv4 connectivity" },
-            { status: 200 },
-          );
-        }
-      } catch {
-        return Response.json(
-          { success: false, error: "No IPv4 connectivity" },
-          { status: 200 },
-        );
-      }
+      return Response.json(
+        { success: false, error: "No IPv4 connectivity" },
+        { status: 200 },
+      );
     }
 
     // Get IP info and PTR record in parallel
