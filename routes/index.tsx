@@ -7,6 +7,12 @@ export default define.page(function Home() {
     <div class="min-h-screen bg-[#fafafa]">
       <Head>
         <title>Browser Info</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+        <style>{`
+          * { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+        `}</style>
       </Head>
       <div class="px-6 md:px-12 py-8">
         <div class="max-w-4xl mx-auto">
