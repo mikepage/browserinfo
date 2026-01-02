@@ -14,8 +14,7 @@ export default define.page(function Home() {
             Browser Info
           </h1>
           <p class="text-[#666] text-sm mb-8">
-            Discover your IP addresses, check DNSSEC validation, and view
-            browser information. A simplified alternative to dnscheck.tools.
+            Discover your IP addresses and view browser information.
           </p>
           <BrowserInfo />
         </div>

@@ -12,24 +12,6 @@ interface IpInfo {
   timezone?: string;
 }
 
-interface DnssecResult {
-  domain: string;
-  algorithm: string;
-  testType: string;
-  passed: boolean;
-  error?: string;
-}
-
-interface DnssecTestGroup {
-  algorithm: string;
-  tests: {
-    valid: DnssecResult | null;
-    invalid: DnssecResult | null;
-    expired: DnssecResult | null;
-    missing: DnssecResult | null;
-  };
-}
-
 export default function BrowserInfo() {
   const ipv4Info = useSignal<IpInfo | null>(null);
   const ipv6Info = useSignal<IpInfo | null>(null);
@@ -38,18 +20,65 @@ export default function BrowserInfo() {
   const ipv4Error = useSignal<string | null>(null);
   const ipv6Error = useSignal<string | null>(null);
 
-  const dnssecResults = useSignal<DnssecTestGroup[]>([]);
-  const dnssecLoading = useSignal(true);
-  const dnssecComplete = useSignal(false);
-
   const webrtcIps = useSignal<string[]>([]);
+  const userAgentData = useSignal<{
+    browser: string;
+    platform: string;
+    mobile: boolean;
+  } | null>(null);
 
   // Detect IPs on mount
   useEffect(() => {
     detectIPs();
     detectWebRTCIPs();
-    runDnssecTests();
+    detectUserAgentData();
   }, []);
+
+  const detectUserAgentData = async () => {
+    if (typeof navigator !== "undefined" && "userAgentData" in navigator) {
+      try {
+        const uaData = navigator.userAgentData as {
+          brands: { brand: string; version: string }[];
+          mobile: boolean;
+          platform: string;
+          getHighEntropyValues: (hints: string[]) => Promise<{
+            brands: { brand: string; version: string }[];
+            mobile: boolean;
+            platform: string;
+            platformVersion: string;
+            fullVersionList: { brand: string; version: string }[];
+          }>;
+        };
+        const highEntropy = await uaData.getHighEntropyValues([
+          "fullVersionList",
+          "platformVersion",
+        ]);
+        const mainBrand = highEntropy.fullVersionList?.find(
+          (b) => !b.brand.includes("Not") && !b.brand.includes("Chromium"),
+        ) || highEntropy.fullVersionList?.[0];
+        userAgentData.value = {
+          browser: mainBrand ? `${mainBrand.brand} ${mainBrand.version}` : "Unknown",
+          platform: `${highEntropy.platform} ${highEntropy.platformVersion}`,
+          mobile: highEntropy.mobile,
+        };
+      } catch {
+        // Fall back to low entropy data
+        const uaData = navigator.userAgentData as {
+          brands: { brand: string; version: string }[];
+          mobile: boolean;
+          platform: string;
+        };
+        const mainBrand = uaData.brands?.find(
+          (b) => !b.brand.includes("Not") && !b.brand.includes("Chromium"),
+        ) || uaData.brands?.[0];
+        userAgentData.value = {
+          browser: mainBrand ? `${mainBrand.brand} ${mainBrand.version}` : "Unknown",
+          platform: uaData.platform || "Unknown",
+          mobile: uaData.mobile,
+        };
+      }
+    }
+  };
 
   const detectIPs = async () => {
     // Detect IPv4
@@ -132,71 +161,6 @@ export default function BrowserInfo() {
     }
   };
 
-  const runDnssecTests = async () => {
-    const algorithms = [
-      { name: "ECDSA P-256", prefix: "ecdsa256" },
-      { name: "ECDSA P-384", prefix: "ecdsa384" },
-      { name: "Ed25519", prefix: "ed25519" },
-    ];
-
-    const testTypes = ["valid", "invalid", "expired", "missing"] as const;
-
-    // Initialize results structure
-    const results: DnssecTestGroup[] = algorithms.map((alg) => ({
-      algorithm: alg.name,
-      tests: {
-        valid: null,
-        invalid: null,
-        expired: null,
-        missing: null,
-      },
-    }));
-    dnssecResults.value = results;
-
-    // Run all tests
-    for (let algIndex = 0; algIndex < algorithms.length; algIndex++) {
-      const alg = algorithms[algIndex];
-
-      for (const testType of testTypes) {
-        try {
-          const response = await fetch(
-            `/api/dnssec?algorithm=${alg.prefix}&test=${testType}`,
-          );
-          const data = await response.json();
-
-          const updatedResults = [...dnssecResults.value];
-          updatedResults[algIndex].tests[testType] = {
-            domain: data.domain,
-            algorithm: alg.name,
-            testType,
-            passed: data.passed,
-            error: data.error,
-          };
-          dnssecResults.value = updatedResults;
-        } catch {
-          const updatedResults = [...dnssecResults.value];
-          updatedResults[algIndex].tests[testType] = {
-            domain: "",
-            algorithm: alg.name,
-            testType,
-            passed: false,
-            error: "Test failed",
-          };
-          dnssecResults.value = updatedResults;
-        }
-      }
-    }
-
-    dnssecLoading.value = false;
-    dnssecComplete.value = true;
-  };
-
-  const allDnssecPassed = () => {
-    return dnssecResults.value.every((group) =>
-      Object.values(group.tests).every((test) => test?.passed === true)
-    );
-  };
-
   const renderIpCard = (
     title: string,
     info: IpInfo | null,
@@ -253,33 +217,6 @@ export default function BrowserInfo() {
     </div>
   );
 
-  const renderTestResult = (result: DnssecResult | null) => {
-    if (!result) {
-      return (
-        <td class="py-2 px-3 text-center">
-          <span class="inline-block w-6 h-6 bg-gray-200 rounded animate-pulse">
-          </span>
-        </td>
-      );
-    }
-
-    return (
-      <td class="py-2 px-3 text-center">
-        {result.passed
-          ? (
-            <span class="inline-flex items-center justify-center w-6 h-6 bg-green-100 text-green-600 rounded-full text-sm font-medium">
-              ✓
-            </span>
-          )
-          : (
-            <span class="inline-flex items-center justify-center w-6 h-6 bg-red-100 text-red-600 rounded-full text-sm font-medium">
-              ✗
-            </span>
-          )}
-      </td>
-    );
-  };
-
   return (
     <div class="w-full space-y-6">
       {/* IP Addresses Section */}
@@ -322,118 +259,58 @@ export default function BrowserInfo() {
         </div>
       )}
 
-      {/* DNSSEC Validation Section */}
-      <div class="bg-white rounded-lg shadow p-6">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold text-gray-800">DNSSEC Validation</h3>
-          {dnssecComplete.value && (
-            <span
-              class={`px-3 py-1 rounded-full text-sm font-medium ${
-                allDnssecPassed()
-                  ? "bg-green-100 text-green-700"
-                  : "bg-yellow-100 text-yellow-700"
-              }`}
-            >
-              {allDnssecPassed()
-                ? "Your resolver validates DNSSEC"
-                : "DNSSEC validation incomplete"}
-            </span>
-          )}
-        </div>
-
-        <p class="text-sm text-gray-500 mb-4">
-          Testing whether your DNS resolver properly validates DNSSEC
-          signatures:
-        </p>
-
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="text-left text-gray-500 border-b">
-                <th class="pb-2 pr-4">Algorithm</th>
-                <th class="pb-2 px-3 text-center">Valid</th>
-                <th class="pb-2 px-3 text-center">Invalid</th>
-                <th class="pb-2 px-3 text-center">Expired</th>
-                <th class="pb-2 px-3 text-center">Missing</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dnssecResults.value.map((group) => (
-                <tr key={group.algorithm} class="border-b border-gray-100">
-                  <td class="py-2 pr-4 font-medium">{group.algorithm}</td>
-                  {renderTestResult(group.tests.valid)}
-                  {renderTestResult(group.tests.invalid)}
-                  {renderTestResult(group.tests.expired)}
-                  {renderTestResult(group.tests.missing)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="mt-4 text-xs text-gray-500">
-          <p>
-            <strong>Valid:</strong> Should resolve (signature is correct)
-          </p>
-          <p>
-            <strong>Invalid/Expired/Missing:</strong>{" "}
-            Should fail if your resolver validates DNSSEC
-          </p>
-        </div>
-      </div>
-
-      {/* Browser Info Section */}
-      <details class="bg-white rounded-lg shadow">
-        <summary class="p-4 cursor-pointer font-medium text-gray-800 hover:bg-gray-50">
-          Browser Information
-        </summary>
-        <div class="p-4 pt-0 border-t">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <div>
-              <span class="text-gray-500">User Agent</span>
-              <p class="font-mono text-xs bg-gray-50 p-2 rounded mt-1 break-all">
-                {typeof navigator !== "undefined" ? navigator.userAgent : "N/A"}
-              </p>
-            </div>
-            <div>
-              <span class="text-gray-500">Platform</span>
-              <p class="font-mono text-sm bg-gray-50 p-2 rounded mt-1">
-                {typeof navigator !== "undefined" ? navigator.platform : "N/A"}
-              </p>
-            </div>
-            <div>
-              <span class="text-gray-500">Language</span>
-              <p class="font-mono text-sm bg-gray-50 p-2 rounded mt-1">
-                {typeof navigator !== "undefined" ? navigator.language : "N/A"}
-              </p>
-            </div>
-            <div>
-              <span class="text-gray-500">Screen Resolution</span>
-              <p class="font-mono text-sm bg-gray-50 p-2 rounded mt-1">
-                {typeof screen !== "undefined"
-                  ? `${screen.width} x ${screen.height}`
-                  : "N/A"}
-              </p>
-            </div>
-            <div>
-              <span class="text-gray-500">Cookies Enabled</span>
-              <p class="font-mono text-sm bg-gray-50 p-2 rounded mt-1">
-                {typeof navigator !== "undefined"
-                  ? navigator.cookieEnabled ? "Yes" : "No"
-                  : "N/A"}
-              </p>
-            </div>
-            <div>
-              <span class="text-gray-500">Online Status</span>
-              <p class="font-mono text-sm bg-gray-50 p-2 rounded mt-1">
-                {typeof navigator !== "undefined"
-                  ? navigator.onLine ? "Online" : "Offline"
-                  : "N/A"}
-              </p>
+      {/* Browser Info Section - only shown when userAgentData is available */}
+      {userAgentData.value && (
+        <details class="bg-white rounded-lg shadow">
+          <summary class="p-4 cursor-pointer font-medium text-gray-800 hover:bg-gray-50">
+            Browser Information
+          </summary>
+          <div class="p-4 pt-0 border-t">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div>
+                <span class="text-gray-500">Browser</span>
+                <p class="font-mono text-sm bg-gray-50 p-2 rounded mt-1">
+                  {userAgentData.value.browser}
+                </p>
+              </div>
+              <div>
+                <span class="text-gray-500">Platform</span>
+                <p class="font-mono text-sm bg-gray-50 p-2 rounded mt-1">
+                  {userAgentData.value.platform}
+                </p>
+              </div>
+              <div>
+                <span class="text-gray-500">Device Type</span>
+                <p class="font-mono text-sm bg-gray-50 p-2 rounded mt-1">
+                  {userAgentData.value.mobile ? "Mobile" : "Desktop"}
+                </p>
+              </div>
+              <div>
+                <span class="text-gray-500">Language</span>
+                <p class="font-mono text-sm bg-gray-50 p-2 rounded mt-1">
+                  {typeof navigator !== "undefined" ? navigator.language : "N/A"}
+                </p>
+              </div>
+              <div>
+                <span class="text-gray-500">Screen Resolution</span>
+                <p class="font-mono text-sm bg-gray-50 p-2 rounded mt-1">
+                  {typeof screen !== "undefined"
+                    ? `${screen.width} x ${screen.height}`
+                    : "N/A"}
+                </p>
+              </div>
+              <div>
+                <span class="text-gray-500">Online Status</span>
+                <p class="font-mono text-sm bg-gray-50 p-2 rounded mt-1">
+                  {typeof navigator !== "undefined"
+                    ? navigator.onLine ? "Online" : "Offline"
+                    : "N/A"}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      </details>
+        </details>
+      )}
     </div>
   );
 }
