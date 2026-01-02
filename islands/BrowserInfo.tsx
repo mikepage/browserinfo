@@ -20,7 +20,6 @@ export default function BrowserInfo() {
   const ipv4Error = useSignal<string | null>(null);
   const ipv6Error = useSignal<string | null>(null);
 
-  const webrtcIps = useSignal<string[]>([]);
   const userAgentData = useSignal<{
     browser: string;
     platform: string;
@@ -29,8 +28,7 @@ export default function BrowserInfo() {
 
   // Detect IPs on mount
   useEffect(() => {
-    detectIPs();
-    detectWebRTCIPs();
+    detectIPsViaWebRTC();
     detectUserAgentData();
   }, []);
 
@@ -80,71 +78,33 @@ export default function BrowserInfo() {
     }
   };
 
-  const detectIPs = async () => {
-    // Detect IPv4 using IPv4-only endpoint
-    try {
-      const ipResponse = await fetch("https://api.ipify.org?format=json");
-      const ipData = await ipResponse.json();
-      if (ipData.ip && !ipData.ip.includes(":")) {
-        // Got IPv4, now get additional info from our API
-        const infoResponse = await fetch(`/api/ip?ip=${ipData.ip}`);
-        const infoData = await infoResponse.json();
-        if (infoData.success) {
-          ipv4Info.value = infoData;
-        } else {
-          ipv4Info.value = { ip: ipData.ip, version: "IPv4" };
-        }
-      } else {
-        ipv4Error.value = "No IPv4 connectivity";
-      }
-    } catch {
-      ipv4Error.value = "No IPv4 connectivity";
-    } finally {
+  const detectIPsViaWebRTC = async () => {
+    if (typeof RTCPeerConnection === "undefined") {
+      ipv4Error.value = "WebRTC not supported";
+      ipv6Error.value = "WebRTC not supported";
       ipv4Loading.value = false;
-    }
-
-    // Detect IPv6 using IPv6-only endpoint
-    try {
-      const ipResponse = await fetch("https://api6.ipify.org?format=json");
-      const ipData = await ipResponse.json();
-      if (ipData.ip && ipData.ip.includes(":")) {
-        // Got IPv6, now get additional info from our API
-        const infoResponse = await fetch(`/api/ip?ip=${ipData.ip}`);
-        const infoData = await infoResponse.json();
-        if (infoData.success) {
-          ipv6Info.value = infoData;
-        } else {
-          ipv6Info.value = { ip: ipData.ip, version: "IPv6" };
-        }
-      } else {
-        ipv6Error.value = "No IPv6 connectivity";
-      }
-    } catch {
-      ipv6Error.value = "No IPv6 connectivity";
-    } finally {
       ipv6Loading.value = false;
+      return;
     }
-  };
-
-  const detectWebRTCIPs = async () => {
-    if (typeof RTCPeerConnection === "undefined") return;
 
     try {
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
 
-      const ips = new Set<string>();
+      const detectedIps = { ipv4: null as string | null, ipv6: null as string | null };
 
       pc.onicecandidate = (event) => {
         if (event.candidate?.candidate) {
           const parts = event.candidate.candidate.split(" ");
           if (parts.length > 4) {
             const ip = parts[4];
-            // Filter out mDNS addresses and empty values
             if (ip && !ip.endsWith(".local") && !ip.includes("{")) {
-              ips.add(ip);
-              webrtcIps.value = [...ips];
+              if (ip.includes(":") && !detectedIps.ipv6) {
+                detectedIps.ipv6 = ip;
+              } else if (!ip.includes(":") && !detectedIps.ipv4) {
+                detectedIps.ipv4 = ip;
+              }
             }
           }
         }
@@ -164,14 +124,43 @@ export default function BrowserInfo() {
               resolve();
             }
           };
-          // Timeout after 5 seconds
           setTimeout(resolve, 5000);
         }
       });
 
       pc.close();
+
+      // Fetch additional info for detected IPs
+      if (detectedIps.ipv4) {
+        try {
+          const response = await fetch(`/api/ip?ip=${detectedIps.ipv4}`);
+          const data = await response.json();
+          ipv4Info.value = data.success ? data : { ip: detectedIps.ipv4, version: "IPv4" };
+        } catch {
+          ipv4Info.value = { ip: detectedIps.ipv4, version: "IPv4" };
+        }
+      } else {
+        ipv4Error.value = "No IPv4 detected";
+      }
+      ipv4Loading.value = false;
+
+      if (detectedIps.ipv6) {
+        try {
+          const response = await fetch(`/api/ip?ip=${detectedIps.ipv6}`);
+          const data = await response.json();
+          ipv6Info.value = data.success ? data : { ip: detectedIps.ipv6, version: "IPv6" };
+        } catch {
+          ipv6Info.value = { ip: detectedIps.ipv6, version: "IPv6" };
+        }
+      } else {
+        ipv6Error.value = "No IPv6 detected";
+      }
+      ipv6Loading.value = false;
     } catch {
-      // WebRTC detection failed silently
+      ipv4Error.value = "Detection failed";
+      ipv6Error.value = "Detection failed";
+      ipv4Loading.value = false;
+      ipv6Loading.value = false;
     }
   };
 
@@ -253,25 +242,6 @@ export default function BrowserInfo() {
           )}
         </div>
       </div>
-
-      {/* WebRTC IPs */}
-      {webrtcIps.value.length > 0 && (
-        <div class="bg-white rounded-lg shadow p-6">
-          <h3 class="text-lg font-semibold text-gray-800 mb-4">
-            WebRTC Detected IPs
-          </h3>
-          <p class="text-sm text-gray-500 mb-2">
-            Additional IPs discovered via WebRTC ICE candidates:
-          </p>
-          <div class="space-y-1">
-            {webrtcIps.value.map((ip) => (
-              <p key={ip} class="font-mono text-sm bg-gray-50 p-2 rounded">
-                {ip}
-              </p>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Browser Info Section - only shown when userAgentData is available */}
       {userAgentData.value && (
