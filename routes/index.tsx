@@ -20,7 +20,7 @@ export default define.page(function Home() {
             Browser Info
           </h1>
           <p class="text-[#666] text-sm mb-8">
-            Discover your IP addresses and view browser information.
+            Discover your IP addresses using WebRTC with Cloudflare's STUN server and view browser information.
           </p>
           <BrowserInfo />
         </div>

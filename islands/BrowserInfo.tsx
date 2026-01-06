@@ -78,6 +78,33 @@ export default function BrowserInfo() {
     }
   };
 
+  const isPrivateIPv4 = (ip: string): boolean => {
+    const parts = ip.split(".").map(Number);
+    if (parts.length !== 4) return false;
+    // 10.0.0.0/8
+    if (parts[0] === 10) return true;
+    // 172.16.0.0/12
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    // 192.168.0.0/16
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    // 100.64.0.0/10 (CGNAT)
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+    // 169.254.0.0/16 (link-local)
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    return false;
+  };
+
+  const isPrivateIPv6 = (ip: string): boolean => {
+    const lower = ip.toLowerCase();
+    // fe80::/10 (link-local) - fe80:: through febf::
+    if (/^fe[89ab]/.test(lower)) return true;
+    // fc00::/7 (unique local addresses) - fc00:: and fd00::
+    if (/^f[cd]/.test(lower)) return true;
+    // ::1 (loopback)
+    if (lower === "::1") return true;
+    return false;
+  };
+
   const detectIPsViaWebRTC = async () => {
     if (typeof RTCPeerConnection === "undefined") {
       ipv4Error.value = "WebRTC not supported";
@@ -89,7 +116,7 @@ export default function BrowserInfo() {
 
     try {
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
       });
 
       const detectedIps = { ipv4: null as string | null, ipv6: null as string | null };
@@ -100,9 +127,9 @@ export default function BrowserInfo() {
           if (parts.length > 4) {
             const ip = parts[4];
             if (ip && !ip.endsWith(".local") && !ip.includes("{")) {
-              if (ip.includes(":") && !detectedIps.ipv6) {
+              if (ip.includes(":") && !isPrivateIPv6(ip) && !detectedIps.ipv6) {
                 detectedIps.ipv6 = ip;
-              } else if (!ip.includes(":") && !detectedIps.ipv4) {
+              } else if (!ip.includes(":") && !isPrivateIPv4(ip) && !detectedIps.ipv4) {
                 detectedIps.ipv4 = ip;
               }
             }
