@@ -1,6 +1,7 @@
 import { Head } from "fresh/runtime";
 import { define } from "../utils.ts";
 import BrowserInfo from "../islands/BrowserInfo.tsx";
+import ServiceWorkerInfo from "../islands/ServiceWorkerInfo.tsx";
 
 export default define.page(function Home() {
   return (
@@ -23,6 +24,9 @@ export default define.page(function Home() {
             Discover your IP addresses using WebRTC with Cloudflare's STUN server and view browser information.
           </p>
           <BrowserInfo />
+          <div class="mt-8">
+            <ServiceWorkerInfo />
+          </div>
         </div>
       </div>
       <footer class="px-6 md:px-12 py-8 border-t border-[#eee]">
